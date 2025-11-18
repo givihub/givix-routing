@@ -1,0 +1,6 @@
+{
+  "from": { "address": "Москва, Тверская 1" },
+  "to":   { "address": "Санкт-Петербург, Невский проспект 1" },
+  "vehicle": "truck",
+  "traffic": "disabled"
+}
