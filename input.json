@@ -1,6 +1,21 @@
 {
-  "from": { "address": "Москва, Тверская 1" },
-  "to":   { "address": "Санкт-Петербург, Невский проспект 1" },
-  "vehicle": "truck",
-  "traffic": "disabled"
+  "from": {
+    "address": "Москва, ул. Гурьянова, 55"
+  },
+  "to": {
+    "address": "Москва, Мичуринский пр-т 45"
+  },
+
+  "transport": "truck",
+
+  "filters": ["dirt_road"],
+
+  "vehicle_params": {
+    "weight": 20,
+    "axle_weight": 8
+  },
+
+  "locale": "ru",
+
+  "route_mode": "shortest"
 }

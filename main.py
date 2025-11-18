@@ -5,16 +5,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_KEY = os.getenv("API_KEY")
+API_KEY = os.getenv("API_KEY")                 # 2GIS Routing API
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")   # Yandex Geocoder API
 
-GEOCODER_URL = "https://catalog.api.2gis.com/3.0/geocoding/search"
-ROUTING_URL = "https://routing.api.2gis.com/carrouting/7.0.0/global"
+YANDEX_GEOCODER_URL = "https://geocode-maps.yandex.ru/1.x"
+ROUTING_URL = "https://routing.api.2gis.com/routing/7.0.0/global"
 
 
+# ---------------------------------------------------------------
+# 1) Геокодер Яндекса
+# ---------------------------------------------------------------
 def geocode_address(address: str):
-    """Геокодинг через Яндекс Геокодер (JSON формат)."""
-    YA_URL = "https://geocode-maps.yandex.ru/1.x"
-
     params = {
         "apikey": YANDEX_API_KEY,
         "format": "json",
@@ -22,124 +23,101 @@ def geocode_address(address: str):
         "results": 1
     }
 
-    resp = requests.get(YA_URL, params=params).json()
+    r = requests.get(YANDEX_GEOCODER_URL, params=params)
+    data = r.json()
 
     try:
-        pos = resp["response"]["GeoObjectCollection"]["featureMember"][0]["GeoObject"]["Point"]["pos"]
+        member = data["response"]["GeoObjectCollection"]["featureMember"]
+        if not member:
+            raise ValueError("Яндекс не нашёл объект.")
+
+        pos = member[0]["GeoObject"]["Point"]["pos"]  # "37.617635 55.755814"
         lon, lat = pos.split(" ")
         return float(lat), float(lon)
+
     except Exception as e:
-        raise ValueError(f"Яндекс не смог геокодировать адрес '{address}'. Ошибка: {e}")
+        raise ValueError(f"Ошибка геокодирования '{address}': {e}")
 
 
-def ensure_coords(point_data: dict):
-    """Если есть адрес — превращаем его в координаты. Если есть координаты — просто возвращаем."""
-    if "lat" in point_data and "lon" in point_data:
-        return point_data["lat"], point_data["lon"]
+# ---------------------------------------------------------------
+# 2) Координаты из адреса или напрямую
+# ---------------------------------------------------------------
+def ensure_coords(point: dict):
+    if "lat" in point and "lon" in point:
+        return float(point["lat"]), float(point["lon"])
+    if "address" in point:
+        return geocode_address(point["address"])
+    raise ValueError("Нет координат и нет адреса!!!")
 
-    if "address" in point_data:
-        return geocode_address(point_data["address"])
 
-    raise ValueError("Нет ни координат, ни адреса")
-
-
+# ---------------------------------------------------------------
+# 3) Построение маршрута 2ГИС Routing API 7.0.0 (POST!)
+# ---------------------------------------------------------------
 def calculate_route(from_coords, to_coords, params_input):
-    """Строит маршрут в 2ГИС с учётом всех опциональных параметров."""
+    """Строит маршрут через Routing API 2ГИС 7.0.0 (POST) + параметры грузовиков."""
 
-    # БАЗОВЫЕ ОБЯЗАТЕЛЬНЫЕ ПАРАМЕТРЫ
-    params = {
-        "key": API_KEY,
-        "points": f"{from_coords[1]},{from_coords[0]};{to_coords[1]},{to_coords[0]}"
+    body = {
+        "points": [
+            {"lat": from_coords[0], "lon": from_coords[1]},
+            {"lat": to_coords[0],  "lon": to_coords[1]}
+        ],
+        "transport": params_input.get("transport", "truck"),
+        "filters": params_input.get("filters", []),
+        "locale": params_input.get("locale", "ru"),
+        "output": "detailed",
+        "route_mode": params_input.get("route_mode", "fastest")
     }
 
-    # -----------------------------------------------------------
-    # 1️⃣ ТИП ТРАНСПОРТА
-    # -----------------------------------------------------------
-    vehicle_type = params_input.get("vehicle", "truck")
-    params["type"] = vehicle_type
-
-    # -----------------------------------------------------------
-    # 2️⃣ ПРОБКИ (enabled / disabled)
-    # -----------------------------------------------------------
-    traffic = params_input.get("traffic", "disabled")
-    params["traffic"] = traffic
-
-    # -----------------------------------------------------------
-    # 3️⃣ ФИЛЬТРЫ (dirt_road, toll_road, ferry, …)
-    # -----------------------------------------------------------
-    filters_list = params_input.get("filters")
-    if isinstance(filters_list, list) and len(filters_list) > 0:
-        params["filters"] = ",".join(filters_list)
-
-    # -----------------------------------------------------------
-    # 4️⃣ ПРИОРИТЕТ (time / distance)
-    # -----------------------------------------------------------
-    priority = params_input.get("priority")
-    if priority:
-        params["priority"] = priority
-
-    # -----------------------------------------------------------
-    # 5️⃣ ЛОКАЛЬ
-    # -----------------------------------------------------------
-    locale = params_input.get("locale")
-    if locale:
-        params["locale"] = locale
-
-    # -----------------------------------------------------------
-    # 6️⃣ ВРЕМЯ UTC
-    # -----------------------------------------------------------
-    utc = params_input.get("utc")
-    if utc:
-        params["utc"] = utc
-
-    # -----------------------------------------------------------
-    # 7️⃣ ПАРАМЕТРЫ ГРУЗОВИКА (ГАБАРИТЫ)
-    # -----------------------------------------------------------
+    # Добавляем параметры грузовика (если есть)
     vehicle_params = params_input.get("vehicle_params", {})
-    # параметры, которые можно передать
-    valid_keys = ["height", "width", "length", "weight", "axle_weight", "hazard_class"]
-
-    for key in valid_keys:
+    for key in ["height", "width", "length", "weight", "axle_weight", "hazard_class"]:
         value = vehicle_params.get(key)
-        if value not in (None, "", 0, "0"):
-            # передаём только если НЕ пусто
-            params[key] = value
+        if value not in (None, "", "0", 0):
+            body[key] = value
 
-    # -----------------------------------------------------------
-    # ОТПРАВКА ЗАПРОСА
-    # -----------------------------------------------------------
-    resp = requests.get(ROUTING_URL, params=params).json()
+    # API ключ — ТОЛЬКО в query!
+    params = {"key": API_KEY}
 
-    if "result" not in resp:
-        raise ValueError(f"Ошибка маршрутизации: {resp}")
+    print("\n=== POST TO 2GIS ===")
+    print(json.dumps(body, indent=4, ensure_ascii=False))
+    print("====================\n")
 
-    route = resp["result"][0]
+    r = requests.post(ROUTING_URL, params=params, json=body)
 
-    distance_m = route["distance"]
-    duration_s = route["duration"]
+    print("=== RAW RESPONSE ===")
+    print("STATUS:", r.status_code)
+    print("TEXT:", r.text[:3000])
+    print("====================\n")
+
+    data = r.json()
+
+    if "result" not in data:
+        raise ValueError(f"Ошибка маршрутизации: {data}")
+
+    route = data["result"][0]
+
+    # Основные значения
+    distance_m = route.get("total_distance", 0)
+    duration_s = route.get("total_duration", 0)
 
     return distance_m, duration_s
 
-    return distance_m, duration_s
-
-
+# ---------------------------------------------------------------
+# 4) main()
+# ---------------------------------------------------------------
 def main():
-    # 1. Читаем входной JSON
     with open("input.json", "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # 2. Координаты точки А
     from_lat, from_lon = ensure_coords(data["from"])
-    # 3. Координаты точки Б
     to_lat, to_lon = ensure_coords(data["to"])
 
-    # 4. Вычисляем маршрут
     distance_m, duration_s = calculate_route(
-        (from_lat, from_lon), (to_lat, to_lon),
-        vehicle=data.get("vehicle", "truck")
+        (from_lat, from_lon),
+        (to_lat, to_lon),
+        data
     )
 
-    # 5. Формируем ответ
     result = {
         "success": True,
         "from": {"lat": from_lat, "lon": from_lon},
@@ -150,11 +128,10 @@ def main():
         "duration_minutes": round(duration_s / 60, 1)
     }
 
-    # 6. Записываем output.json
     with open("output.json", "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=4)
 
-    print("Готово! Результат записан в output.json")
+    print("\nГотово! Результат записан в output.json\n")
 
 
 if __name__ == "__main__":
