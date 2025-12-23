@@ -1,15 +1,15 @@
 {
     "success": true,
     "from": {
-        "lat": 55.680422,
-        "lon": 37.71707
+        "lat": 55.632012,
+        "lon": 37.485026
     },
     "to": {
         "lat": 55.687792,
         "lon": 37.482798
     },
-    "distance_meters": 24023,
-    "distance_km": 24.023,
-    "duration_seconds": 5331,
-    "duration_minutes": 88.8
+    "distance_meters": 8366,
+    "distance_km": 8.366,
+    "duration_seconds": 1514,
+    "duration_minutes": 25.2
 }
