@@ -59,6 +59,7 @@ POST https://routing.api.2gis.com/routing/7.0.0/global
 - обратного геокодинга (координаты → адрес).
 
 API_KEY=YOUR_2GIS_API_KEY
+
 YANDEX_API_KEY=YOUR_YANDEX_GEOCODER_API_KEY
 
 ## **🧠 Общая логика обработки маршрутов**
